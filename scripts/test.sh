@@ -116,15 +116,21 @@ function integration_extra {
 }
 
 function integration_pass {
-  run_for_module "tests" go_test "./integration/..." "parallel" : -timeout="${TIMEOUT:-15m}" "${COMMON_TEST_FLAGS[@]}" "${RUN_ARG[@]}" -p=2 "$@" || return $?
-  run_for_module "tests" go_test "./common/..." "parallel" : --tags=integration -timeout="${TIMEOUT:-15m}" "${COMMON_TEST_FLAGS[@]}" -p=2 "${RUN_ARG[@]}" "$@" || return $?
+  run_for_module "tests" go_test "./integration/..." "parallel" : \
+    -timeout="${TIMEOUT:-15m}" "${COMMON_TEST_FLAGS[@]}" "${RUN_ARG[@]}" "$@" && \
+  run_for_module "tests" go_test "./common/..." "parallel" : \
+    --tags=integration -timeout="${TIMEOUT:-15m}" "${COMMON_TEST_FLAGS[@]}" "${RUN_ARG[@]}" "$@" && \
   integration_extra "$@"
+  return $?
 }
 
 function e2e_pass {
   # e2e tests are running pre-build binary. Settings like --race,-cover,-cpu does not have any impact.
-  run_for_module "tests" go_test "./e2e/..." "keep_going" : -timeout="${TIMEOUT:-30m}" "${RUN_ARG[@]}" "$@" || return $?
-  run_for_module "tests" go_test "./common/..." "keep_going" : --tags=e2e -timeout="${TIMEOUT:-30m}" "${RUN_ARG[@]}" "$@"
+  run_for_module "tests" go_test "./e2e/..." "keep_going" : \
+    -timeout="${TIMEOUT:-30m}" "${RUN_ARG[@]}" "$@" && \
+  run_for_module "tests" go_test "./common/..." "keep_going" : \
+    --tags=e2e -timeout="${TIMEOUT:-30m}" "${RUN_ARG[@]}" "$@"
+  return $?
 }
 
 function robustness_pass {
@@ -646,16 +652,25 @@ function run_pass {
   shift 1
   log_callout -e "\\n'${pass}' started at $(date)"
   if "${pass}_pass" "$@" ; then
-    log_success "'${pass}' completed at $(date)"
+    log_success "'${pass}' PASSED and completed at $(date)"
+    return 0
   else
-    log_error "FAIL: '${pass}' failed at $(date)"
-    exit 255
+    log_error "FAIL: '${pass}' FAILED and completed at $(date)"
+    return 2
   fi
 }
 
 log_callout "Starting at: $(date)"
+fail_flag=false
 for pass in $PASSES; do
-  run_pass "${pass}" "${@}"
+  if run_pass "${pass}" "${@}"; then
+    continue
+  else
+    fail_flag=true
+  fi
 done
-
+if [ "$fail_flag" = true ]; then
+  log_error "There was a failure in the test suites ran. Look above log detail"
+  exit 255
+fi
 log_success "SUCCESS"
